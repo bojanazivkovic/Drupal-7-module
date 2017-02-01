@@ -1,0 +1,4 @@
+name = Registracija
+description = Registracija korisnika putem email adrese.
+package = Bojana Zivkovic
+core = 7.x

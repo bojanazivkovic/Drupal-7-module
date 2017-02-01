@@ -1,0 +1,45 @@
+<?php
+
+function registracija_schema(){
+  $schema['registracija'] = array(
+    'fields' => array(
+      'id' => array(
+        'description' => 'Default identifikator.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'label' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'field' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'regex' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'message' => array(
+        'type' => 'varchar',
+        'length' => 255,
+      ),
+      'enabled' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 1,
+        'size' => 'tiny',
+      ),
+    ),
+    'indexes' => array(
+      'field' => array('field'),
+      'enabled' => array('enabled'),
+    ),
+    'primary key' => array('id'),
+  );
+  return $schema;
+}

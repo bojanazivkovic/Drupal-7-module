@@ -1,0 +1,435 @@
+<?php
+/**
+ * Implementation of hook_permission().
+ */
+function registracija_permission(){
+	
+	return array(
+		'edit registracija module'=>array(
+			'title'=>t('Izmena modula za registraciju'),
+			'description'=>t('Izmena'),
+		),
+	);
+	 
+	 $permissions = array(
+    'administer registracija regex' => array(
+      'title' => t('Administer registracija regex'),
+      'restrict access' => TRUE,
+    ),
+    'bypass registracija' => array(
+      'title' => t('Bypass registracija regex'),
+    ),
+  );
+  return $permissions;
+	 
+}
+
+
+
+function registracija_admin_settings(){
+	$roles = user_roles(TRUE);
+  unset($roles[DRUPAL_AUTHENTICATED_RID]);
+    $regex='';
+	$form = array();
+  $form['registracija_roles'] = array(
+    '#type' => 'radios',
+    '#title' => t('Izaberite ulogu za novo registrovanog korisnika'),
+    '#options' => $roles,
+    '#default_value' => variable_get('registracija_roles', ''),
+    '#description' => t('Uloga ce biti dodeljena korisnicima koji se registruju preko registracione forme.'),
+  );
+  
+  
+  $deny_rules = entity_load('registracija');
+  $reg_form = drupal_get_form('user_register_form');
+  $fields = _registracija_element_children_recursive($reg_form);
+  $field_options = array();
+  foreach ($fields as $machine_name =>$human_name) {
+    $field_options[$machine_name] = $human_name;
+  }
+
+  if (count($deny_rules)) {
+    $form['rregistracija_current'] = array(
+      '#type' => 'fieldset',
+    );
+    
+    $header = array(
+      'label' => array('data' => t('Ime')),
+      'field' => array('data' => t('Polje')),
+      'regex' => array('data' => t('Regex')),
+      'message' => array('data' => t('Poruka')),
+    );
+    $options = array();
+    foreach ($deny_rules as $rule) {
+      $options[$rule->id] = array(
+        'label' => $rule->label,
+        'field' => $rule->field,
+        'regex' => $rule->regex,
+        'message' => $rule->message,
+      );
+    }
+    $form['registracija_current']['registracija_current_table'] = array(
+      '#type' => 'tableselect',
+      '#header' => $header,
+      '#options' => $options,
+    );
+    $form['registracija_current']['registracija_current_submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Ukloni selektovano'),
+      '#limit_validation_errors' => array(),
+      '#submit' => array('_registracija_remove'),
+    );
+  }
+
+  $form['registracija_add'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Dodaj regex pravilo.')
+  );
+  $form['registracija_add']['registracija_label'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Ime za pravilo.'),
+    '#required' => TRUE,
+  );
+  $form['registracija_add']['registracija_field'] = array(
+    '#type' => 'select',
+    '#title' => t('Polje'),
+    '#options' => $field_options,
+    '#required' => TRUE,
+  );
+  $form['registracija_add']['registracija_regex'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Regex izraz'),
+    '#required' => TRUE,
+  );
+  $form['registracija_add']['registracija_message'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Poruka'),
+    '#description' => t('Poruka koja se prikazuje ako nije validno.'),
+  );
+  $form['registracija_add']['registracija_submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Dodaj'),
+  );
+  
+  return system_settings_form($form);
+}
+
+/**
+ * Admin form validate.
+ */
+function registracija_admin_form_validate($form, &$form_state) {
+  if ($form_state['triggering_element']['#value'] == 'Dodaj') {
+    if (preg_match($form_state['values']['registracija_regex'], '') === false) {
+      form_set_error('registracija_regex', 'Neispravan regularni izraz');
+    }
+  }
+}
+
+/**
+ * Admin form submit.
+ */
+function registracija_admin_form_submit($form, &$form_state) {
+  // Save the new rule.
+  $new = array();
+  $new['label'] = $form_state['values']['registracija_label'];
+  $new['field'] = $form_state['values']['registracija_field'];
+  $new['regex'] = $form_state['values']['registracija_regex'];
+  $new['message'] = $form_state['values']['registracija_message'];
+
+  if(!drupal_write_record('registracija', $new)){
+    drupal_set_message('Greska...', 'error');
+  }
+}
+
+
+function _registracija_remove($form, &$form_state) {
+  $ids = array();
+  foreach ($form_state['input']['registracija_current_table'] as $value) {
+    if ($value) {
+      $ids[] = $value;
+    }
+  }
+  if (count($ids)) {
+    db_delete('registracija')
+      ->condition('id', $ids, 'IN')
+      ->execute();
+  }
+}
+
+
+function registracija_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'user_register_form' || $form_id == 'user_profile_form') {
+    if (!user_access('bypass registracija')) {
+      $form['#validate'][] = 'registracija_validate';
+    }
+  }
+}
+
+
+function registracija_validate(&$form, &$form_state) {
+ $deny_rules = entity_load('registracija');
+ foreach ($deny_rules as $rule) {
+   if (isset($form_state['values'][$rule->field])) {
+     if (preg_match($rule->regex, $form_state['values'][$rule->field])) {
+       form_set_error($rule->field, filter_xss($rule->message));
+     }
+   }
+ }
+}
+
+//KRAJ REGEX
+
+function registracija_menu(){
+	$items['admin/config/registracija']=array(
+	   'title'=>t('Registracija'),
+	   'description'=>t('Podesavanje opcija za registraciju'),
+	   'weight'=>-5,
+	   'page callback'=>'system_admin_menu_block_page',
+	   'access callback'=>TRUE,
+	   'file'=>'system.admin.inc',
+	   'file path'=>drupal_get_path('module','system')
+	   
+	);
+	$items['admin/config/people/registracija/settings']=array(
+	   'title'=>t('Registracija podesavanja'),
+	   'description'=>t('Podesavanje opcija za registraciju,forma'),
+	   'weight'=>-5,
+	   'page callback'=>'drupal_get_form',
+	   'page arguments'=>array('registracija_admin_settings'),
+	   'access callback'=>TRUE,
+	   'type'=>MENU_NORMAL_ITEM
+	   
+	);
+	
+	
+	return $items;
+}
+function _registracija_element_children_recursive(&$element) {
+  $names = array();
+
+  foreach (element_children($element) as $element_key) {
+    if (isset($element[$element_key]['#type']) && $element[$element_key]['#type'] == 'textfield') {
+      $names[$element_key] = $element[$element_key]['#title'];
+    }
+    $names = array_merge($names, _registracija_element_children_recursive($element[$element_key]));
+  }
+  return $names;
+}
+
+
+
+
+
+
+
+//ULOGE ZA NOVE USERE
+/**
+ * Submit handler for the user registration form.
+ */
+function registracija_form_user_register_submit(&$form, &$form_state) {
+  if ($rid = variable_get('registracija_roles', '')) {
+    $roles = user_roles(TRUE);
+    $form_state['values']['roles'][$rid] = $roles[$rid];
+  }
+}
+
+//REGULARNI IZRAZI
+
+/**
+ * Implements hook_entity_info().
+ */
+function registracija_entity_info() {
+  $info = array();
+  $info['registracija'] = array(
+    'label' => t('Regex registracija'),
+    'base table' => 'registracija',
+    'entity keys' => array(
+      'id' => 'id',
+      'label' => 'label',
+    ),
+    'fieldable' => FALSE,
+    'module' => 'registracija',
+  );
+  return $info;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+//REGISTROVANJE EMAIL-om
+
+/**
+ * Implements hook_user_insert().
+ */
+function registracija_user_insert(&$edit, &$account, $category = NULL) {
+  // Ako postoji taj username nemoj da kreiras novi.
+  if (!empty($account->name) && strpos($account->name, 'registracija_') !== 0) {
+    return;
+  }
+
+  $names = module_invoke_all('registracija_name', $edit, $account);
+  $names = array_filter($names);
+
+  if (empty($names)) {
+    // skloni sve posle @ znaka.
+    $new_name = preg_replace('/@.*$/', '', $edit['mail']);
+    // Ocisti username.
+    $new_name = registracija_cleanup_username($new_name, $account->uid);
+  }
+  else {
+    $new_name = array_pop($names);
+  }
+
+  // Obezbedi jedinstveno ime.
+  $new_name = registracija_unique_username($new_name, $account->uid);
+
+  // Zameni sa generisanim username.
+  db_update('users')
+    ->fields(array('name' => $new_name))
+   ->condition('uid', $account->uid)
+    ->execute();
+
+  $edit['name'] = $new_name;
+  $account->name = $new_name;
+}
+
+
+function registracija_unique_username($name, $uid = NULL) {
+  // Iteracija dok ne pronadjemo jedinstveno ime.
+  $i = 0;
+  do {
+    $new_name = empty($i) ? $name : $name . '_' . $i;
+    if ($uid) {
+      $found = db_query_range("SELECT uid from {users} WHERE uid <> :uid AND name = :name", 0, 1, array(':uid' => $uid, ':name' => $new_name))->fetchAssoc();
+    }
+    else {
+      $found = db_query_range("SELECT uid from {users} WHERE name = :name", 0, 1, array(':name' => $new_name))->fetchAssoc();
+    }
+    $i++;
+  } while (!empty($found));
+
+  return $new_name;
+}
+
+function registracija_cleanup_username($name, $uid = NULL) {
+  // skloni nedozvoljene karaktere.
+  $name = preg_replace('/[^\x{80}-\x{F7} a-zA-Z0-9@_.\'-]/', '', $name);
+  $name = trim($name);
+  $name = preg_replace('/\s+/', '_', $name);
+  $name = ('' === $name) ? t('user') : $name;
+
+  if (!empty($uid)) {
+    $name = $name . '_' . $uid;
+  }
+  $name = (drupal_strlen($name) > (USERNAME_MAX_LENGTH - 10)) ? drupal_substr($name, 0, USERNAME_MAX_LENGTH - 11) : $name;
+  return $name;
+}
+
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function registracija_form_user_register_form_alter(&$form, &$form_state) {
+  $form['account']['name']['#type'] = 'hidden';
+  $form['account']['name']['#value'] = 'registracija_' . user_password();
+  $form['account']['mail']['#title'] = t('E-mail');
+  
+  array_unshift($form['#submit'], 'registracija_form_user_register_submit');
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function registracija_form_user_pass_alter(&$form, &$form_state) {
+  $form['name']['#title'] = t('Email');
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function registracija_form_user_login_alter(&$form, &$form_state) {
+  $form['name']['#title'] = variable_get('registracija_login_with_username', TRUE)
+    ? t('Email')//ili username...username je email
+    : t('Email');
+  $form['name']['#description'] = variable_get('registracija_login_with_username', TRUE)
+      ? t('Upisite email adresu.') //ili username..username je email
+      : t('Upisite email adresu.');
+  $form['name']['#element_validate'][] = 'registracija_user_login_validate';
+  $form['pass']['#description'] = t('Upisite password.');
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function registracija_form_user_login_block_alter(&$form, &$form_state) {
+  $form['name']['#title'] = variable_get('registracija_login_with_username', TRUE)
+    ? t('Email')//ili username...
+    : t('Email');
+  $form['name']['#element_validate'][] = 'registracija_user_login_validate';
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function registracija_form_user_admin_settings_alter(&$form, &$form_state) {
+  $form['registration_cancellation']['registracija_login_with_username'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Dozvoli korisnicama da se uloguju sa email-om.'),
+    '#description' => t('Dozvoli korisnicama da se uloguju sa email-om.'),
+    '#default_value' => variable_get('registracija_login_with_username', TRUE),
+    );
+  $form['#submit'][] = 'registracija_form_user_admin_settings_submit';
+}
+
+function registracija_form_user_admin_settings_submit($form, &$form_state) {
+  variable_set('registracija_login_with_username', $form_state['values']['registracija_login_with_username']);
+}
+
+
+function registracija_user_login_validate($form, &$form_state) {
+  $name = NULL;
+  if (isset($form_state['values']['name']) && valid_email_address($form_state['values']['name'])) {
+    // pokusava da pronadje username koji odgovara email adresi, ako postoji.
+    $name = db_select('users')
+    ->fields('users', array('name'))
+    ->condition('mail', db_like($form_state['values']['name']), 'LIKE')
+    ->execute()
+    ->fetchField();
+  }
+  // ako je pronadjeno iskoristi ga.
+  if (!empty($name)) {
+    $form_state['values']['email'] = $form_state['values']['name'];
+
+    // ako username odgovara email adresi, pretpostavi da je to zeljeno ime i setuj ga
+    $form_state['values']['name'] = $name;
+  }
+  elseif (!variable_get('registracija_login_with_username', TRUE)) {
+    $form_state['values']['name'] = NULL;
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function registracija_form_user_profile_form_alter(&$form, &$form_state) {
+  $form['account']['name']['#title'] = t('Display name');
+}
+
+/* 
+* Implements hook_registracija_name().
+*/
+function registracija_registracija_name($edit, $account) {
+  return $account->mail;
+}
+
+
+
